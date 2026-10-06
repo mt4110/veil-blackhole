@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 use veil_blackhole::bpf::CaptureOptions;
 
-use veil_blackhole::decode::{DLT_EN10MB, decode_frame};
+use veil_blackhole::decode::{DLT_EN10MB, decode_frame_checked, decode_frame_offline};
 use veil_blackhole::dns::{DnsQuery, decode_query};
 use veil_blackhole::error::DecodeError;
 use veil_blackhole::fixture::{MAX_HEX_FILE_BYTES, decode_hex};
@@ -15,15 +15,16 @@ const HELP: &str = "veil-blackhole — Phase 1 読み取り専用DNSアナライ
 
 使い方:
   veil-blackhole replay --fixture PATH [--format ethernet|dns|bpf-darwin]
-                        [--show-names] [--show-endpoints]
+                        [--show-names] [--show-endpoints] [--verify-checksums]
   veil-blackhole capture --interface NAME --duration SECONDS
                          [--show-names] [--show-endpoints]
 
 fixtureはASCII hexの通常ファイルです（最大1 MiB）。既定formatはethernet。
-既定は集計のみ。名前/IPは明示表示。チェックサムは検証済みとしません。
+既定は集計のみ。名前/IPは明示表示。replayの--verify-checksumsでIP/UDPを検証。
 bpf-darwinはclassic Darwin LE record用です。
+replayはpadding-onlyのIPv6 Hop-by-Hop/Destination Optionsに対応。DNS単体のchecksum検証は不可。
 liveはmacOSのDLT_EN10MB・IPv4/IPv6（拡張ヘッダーなし）・非断片化UDP宛先53番・送信方向に限定。
-liveの実機取得と権限降格は未検証です。replay/build/testにsudoは不要です。
+liveの検証範囲はdocs/IPV6_VALIDATION.mdを参照。replay/build/testにsudoは不要です。
 送信、遮断、OSネットワーク設定変更、pcap保存は提供しません。";
 
 #[derive(Clone, Copy)]
@@ -36,6 +37,7 @@ enum Format {
 struct Replay {
     path: PathBuf,
     format: Format,
+    verify_checksums: bool,
     show_names: bool,
     show_endpoints: bool,
 }
@@ -114,6 +116,7 @@ fn parse_args(args: Vec<OsString>) -> Result<Command, &'static str> {
     }
     let mut path = None;
     let mut format = None;
+    let mut verify_checksums = false;
     let mut show_names = false;
     let mut show_endpoints = false;
     let mut i = 1;
@@ -123,6 +126,9 @@ fn parse_args(args: Vec<OsString>) -> Result<Command, &'static str> {
             i += 1;
         } else if args[i] == "--show-endpoints" && !show_endpoints {
             show_endpoints = true;
+            i += 1;
+        } else if args[i] == "--verify-checksums" && !verify_checksums {
+            verify_checksums = true;
             i += 1;
         } else if args[i] == "--fixture" && path.is_none() {
             path = Some(PathBuf::from(
@@ -141,9 +147,13 @@ fn parse_args(args: Vec<OsString>) -> Result<Command, &'static str> {
             return Err("未知または重複したreplay引数です");
         }
     }
+    if verify_checksums && matches!(format, Some(Format::Dns)) {
+        return Err("DNS単体にはIP/UDP headerがなくチェックサム検証できません");
+    }
     Ok(Command::Replay(Replay {
         path: path.ok_or("--fixtureが必要です")?,
         format: format.unwrap_or(Format::Ethernet),
+        verify_checksums,
         show_names,
         show_endpoints,
     }))
@@ -177,8 +187,20 @@ fn display_frame(
     options: &Replay,
     counts: &mut Counts,
 ) -> io::Result<()> {
-    match decode_frame(DLT_EN10MB, frame) {
-        Ok(packet) => {
+    let decoded = if options.verify_checksums {
+        decode_frame_checked(DLT_EN10MB, frame)
+    } else {
+        decode_frame_offline(DLT_EN10MB, frame).map(|packet| (packet, None))
+    };
+    match decoded {
+        Ok((packet, checksum)) => {
+            if let Some(checksum) = checksum {
+                writeln!(
+                    out,
+                    "checksum ipv4_header={} udp={}",
+                    checksum.ipv4_header, checksum.udp
+                )?;
+            }
             counts.queries += 1;
             display_query(out, &packet.dns, options.show_names)?;
             if options.show_endpoints {
@@ -229,7 +251,15 @@ fn replay(options: &Replay, out: &mut impl Write) -> Result<i32, &'static str> {
     };
     let mut counts = Counts::default();
     let mut render = || -> io::Result<()> {
-        writeln!(out, "mode=offline checksum=unverified direction=unverified")?;
+        writeln!(
+            out,
+            "mode=offline checksum={} direction=unverified",
+            if options.verify_checksums {
+                "verification-enabled"
+            } else {
+                "unverified"
+            }
+        )?;
         match options.format {
             Format::Ethernet => display_frame(out, &bytes, options, &mut counts)?,
             Format::Dns => match decode_query(&bytes) {

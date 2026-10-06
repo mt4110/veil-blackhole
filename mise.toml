@@ -1,0 +1,81 @@
+[settings]
+idiomatic_version_file_enable_tools = ["rust"]
+
+[tasks.build]
+description = "開発版をビルド"
+run = "make build"
+
+[tasks.build-release]
+description = "Live試験用のrelease版を一般ユーザーでビルド"
+run = "cargo build --release --locked"
+
+[tasks.test]
+description = "RustとPythonの回帰試験"
+run = "make test"
+
+[tasks.lint]
+description = "整形とClippyを確認"
+run = "make lint"
+
+[tasks.check]
+description = "整形・Clippy・回帰試験を順に実行（Live取得なし）"
+run = ["make lint", "make test"]
+
+[tasks.check-ci]
+description = "CI相当のオフライン検証・releaseビルド・学習コマンド（Liveなし）"
+run = [
+  "mise run check",
+  "mise run build-release",
+  "mise run replay",
+  "mise run learn:ipv4",
+  "mise run learn:ipv6",
+  "mise run learn:dns",
+  "mise run learn:bpf",
+  "mise run learn:checksum",
+  "mise run learn:ipv6-options",
+  "mise run learn:filter",
+]
+
+[tasks.replay]
+description = "人工IPv4パケットを再生（追加引数を渡せます）"
+run = "cargo run --locked -- replay --fixture tests/fixtures/query-a.hex"
+
+[tasks."learn:ipv4"]
+description = "人工IPv4の名前・IP・ポートを表示"
+run = "cargo run --locked -- replay --fixture tests/fixtures/query-a.hex --show-names --show-endpoints"
+
+[tasks."learn:ipv6"]
+description = "人工IPv6の名前・IP・ポートを表示"
+run = "cargo run --locked -- replay --fixture tests/fixtures/query-v6.hex --show-names --show-endpoints"
+
+[tasks."learn:ipv6-options"]
+description = "人工IPv6拡張ヘッダー列を再生しUDPチェックサムを検証"
+run = "cargo run --locked -- replay --fixture tests/fixtures/query-v6-options.hex --verify-checksums --show-names"
+
+[tasks."learn:dns"]
+description = "DNSペイロードだけを再生"
+run = "cargo run --locked -- replay --fixture tests/fixtures/dns-query-a.hex --format dns --show-names"
+
+[tasks."learn:checksum"]
+description = "人工IPv4/IPv6のチェックサムを検証"
+run = [
+  "cargo run --locked -- replay --fixture tests/fixtures/query-a.hex --verify-checksums",
+  "cargo run --locked -- replay --fixture tests/fixtures/query-v6.hex --verify-checksums",
+]
+
+[tasks."learn:bpf"]
+description = "人工BPFの2レコードを再生"
+run = "cargo run --locked -- replay --fixture tests/fixtures/bpf-two-records.hex --format bpf-darwin --show-names"
+
+[tasks."learn:filter"]
+description = "macOSのオフライン評価器でfilterを検証"
+run = "python3 scripts/check-native-filter.py"
+
+[tasks.live-preflight]
+description = "既存resolverの経路だけ確認（取得・送信なし）"
+run = "python3 scripts/live-smoke.py --check"
+
+[tasks.live-smoke]
+description = "10秒取得＋既存resolverへのテストDNS query 1回"
+depends = ["build-release"]
+run = "python3 scripts/live-smoke.py"

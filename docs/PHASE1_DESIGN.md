@@ -1,5 +1,7 @@
 # veil-blackhole Phase 1 の設計
 
+現在の追加仕様と検証範囲: [実機IPv6・停止試験](IPV6_VALIDATION.md)、[オフラインchecksum](CHECKSUM_VALIDATION.md)、[オフラインIPv6拡張header](IPV6_EXTENSIONS.md)。本文の初期スケルトン手順・依頼例は開発段階の記録であり、現在のLiveを未実装へ戻す指示ではない。Liveは直接UDP、オフラインはpadding-only拡張headerまで対応する。
+
 作成日：2026年10月6日 JST。状態：オフライン部分の実装と初期検証を完了。対象：macOSの読み取り専用DNSキャプチャとデコード。Liveバックエンド・権限処理を実装し、合成データの試験まで完了。利用者の実機出力で初期化・権限確認の通過、時間満了、Ctrl-C停止を確認。修正版では実DNSのread・デコードと時間満了も利用者の実機出力で確認した。現在の実装と試験結果は[VALIDATION.md](VALIDATION.md)と[LIVE_VALIDATION.md](LIVE_VALIDATION.md)を参照する。
 
 **Phase 1は、選択したインターフェースで、自身のMacが送る平文IPv4/IPv6 UDP DNS queryを観測するツールとする。パケット送信、DNS応答合成、名前解決の変更、通信遮断は実装しない。** 対応していない入力や経路は、その制約を表示する。全DNSの観測、100%の安全、OSやNICへの無影響は保証しない。
