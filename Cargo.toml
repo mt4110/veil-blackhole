@@ -1,0 +1,22 @@
+[package]
+name = "veil-blackhole"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98.1"
+publish = false
+description = "Read-only macOS DNS analyzer for the veil-blackhole Phase 1 study"
+
+[dependencies]
+hickory-proto = { version = "=0.26.3", default-features = false, features = ["std"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "=0.2.190"
+
+[build-dependencies]
+cc = "=1.6.0"
+
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+all = "warn"
