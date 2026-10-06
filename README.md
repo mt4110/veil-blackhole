@@ -53,6 +53,8 @@ cargo run --locked -- replay --fixture tests/fixtures/query-a.hex --verify-check
 
 `--verify-checksums`はEthernetとbpf-darwinの再生だけで使用できます。IPv4 header（optionsを含む）とUDPの疑似header・payloadを検証し、不正ならmalformedとして終了コード2を返します。IPv4のUDP値0は`udp=omitted`、IPv6のUDP値0は不正です。IPv6にはIP header checksumがなく`ipv4_header=not-applicable`と表示します。成功した各queryに検証結果を表示しますが、送信方向・出所・内容の真正性は証明しません。
 
+IPv4のLSRR／SSRR（ソースルート）optionは、UDP疑似headerの最終宛先を扱わないため、検証時にunsupportedとして拒否します。通常のoptionはEOL・NOP・TLV長の境界を確認します。
+
 DNS単体では必要なIP/UDP headerがないため、このオプションを拒否します。既定の再生とLiveは引き続きchecksum未検証です。取得時点で送信オフロードによりchecksumが未完成の場合があるので、実通信由来のファイルの検証失敗を、そのまま回線上の不正と判断しません。
 
 根拠は[UDPの定義](https://www.rfc-editor.org/rfc/rfc768.html)、[IPv6の疑似headerとUDP checksum](https://www.rfc-editor.org/rfc/rfc8200.html#section-8.1)です。対応外のトンネル等の例外は実装対象に含めません。

@@ -10,6 +10,10 @@
 - macOS上でオフライン検証だけを実行するGitHub Actions workflow。
 - 人工fixtureと境界回帰試験、コマンドによる学習ガイド。
 
+### Fixed
+
+- オフラインchecksum検証でIPv4 LSRR/SSRRをunsupportedとして拒否し、基本宛先での誤った検証結果を防止。optionの長さ境界検査と回帰試験を追加。修正後のRust試験は52件。
+
 ### Changed
 
 - 取得中のinterface再確認エラーに、停止状況と元の原因を表示。

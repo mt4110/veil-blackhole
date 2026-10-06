@@ -100,3 +100,93 @@ fn truncated_inputs_do_not_panic() {
         }
     }
 }
+
+fn with_ipv4_options(options: &[u8]) -> Vec<u8> {
+    assert!(options.len().is_multiple_of(4));
+    assert!(options.len() <= 40);
+    let mut frame = fixture("query-a.hex");
+    frame.splice(34..34, options.iter().copied());
+    frame[14] = 0x40 | (5 + options.len() as u8 / 4);
+    frame[16..18].copy_from_slice(&(58 + options.len() as u16).to_be_bytes());
+    frame[24..26].fill(0);
+    let header = checksum(&frame[14..34 + options.len()]);
+    frame[24..26].copy_from_slice(&header.to_be_bytes());
+    frame
+}
+
+#[test]
+fn source_routes_never_report_udp_checksum_validity() {
+    use veil_blackhole::{decode::decode_frame_offline, error::DecodeError};
+    for kind in [131, 137] {
+        // LSRR and SSRR
+        let mut frame = with_ipv4_options(&[kind, 7, 4, 203, 0, 113, 53, 1]);
+        assert!(decode_frame_offline(DLT_EN10MB, &frame).is_ok());
+        // Original UDP checksum matches the base destination, not the route's final destination.
+        assert_eq!(
+            decode_frame_checked(DLT_EN10MB, &frame),
+            Err(DecodeError::Unsupported("IPv4 source-route checksum"))
+        );
+        // A checksum calculated using the final destination is also explicitly unsupported.
+        frame[48..50].fill(0);
+        let mut pseudo = frame[26..30].to_vec();
+        pseudo.extend_from_slice(&[203, 0, 113, 53, 0, 17, 0, 38]);
+        pseudo.extend_from_slice(&frame[42..]);
+        let udp = checksum(&pseudo);
+        frame[48..50].copy_from_slice(&udp.to_be_bytes());
+        assert_eq!(
+            decode_frame_checked(DLT_EN10MB, &frame),
+            Err(DecodeError::Unsupported("IPv4 source-route checksum"))
+        );
+        frame[48..50].fill(0);
+        assert_eq!(
+            decode_frame_checked(DLT_EN10MB, &frame),
+            Err(DecodeError::Unsupported("IPv4 source-route checksum"))
+        );
+    }
+}
+
+#[test]
+fn ipv4_option_lengths_are_checked_before_checksum_reporting() {
+    use veil_blackhole::error::DecodeError;
+    for options in [
+        vec![130, 0, 0, 0],
+        vec![130, 1, 0, 0],
+        vec![130, 5, 0, 0],
+        vec![1, 1, 1, 130],
+        vec![131, 9, 4, 0],
+    ] {
+        let frame = with_ipv4_options(&options);
+        assert!(matches!(
+            decode_frame_checked(DLT_EN10MB, &frame),
+            Err(DecodeError::Malformed(_))
+        ));
+    }
+}
+
+#[test]
+fn ipv4_option_boundaries_avoid_false_source_route_detection() {
+    for options in [
+        vec![1; 40],
+        vec![0, 131, 137, 0],
+        vec![130, 4, 131, 137],
+        vec![1, 130, 2, 0],
+    ] {
+        let frame = with_ipv4_options(&options);
+        assert_eq!(
+            decode_frame_checked(DLT_EN10MB, &frame)
+                .unwrap()
+                .1
+                .unwrap()
+                .udp,
+            "valid"
+        );
+    }
+    let original = with_ipv4_options(&[131, 7, 4, 203, 0, 113, 53, 1]);
+    for offset in 14..42 {
+        for value in [0, 255, 131, 137] {
+            let mut frame = original.clone();
+            frame[offset] = value;
+            let _ = decode_frame_checked(DLT_EN10MB, &frame);
+        }
+    }
+}

@@ -31,6 +31,7 @@ pub fn decode_frame_checked(
     let ip = &frame[14..];
     let (udp, pseudo_sum, ipv4_header) = if ip[0] >> 4 == 4 {
         let header_len = usize::from(ip[0] & 15) * 4;
+        check_ipv4_checksum_options(&ip[20..header_len])?;
         if sum(&ip[..header_len], 0) != 0xffff {
             return Err(DecodeError::Malformed("IPv4 header checksum"));
         }
@@ -61,6 +62,33 @@ pub fn decode_frame_checked(
             udp: udp_status,
         }),
     ))
+}
+
+// Bounds are already checked by decode_frame_offline; IHL limits this to 40 bytes.
+// Source routing changes the UDP pseudo-header destination. Do not claim validity
+// without implementing its semantics, even when the UDP checksum is omitted.
+fn check_ipv4_checksum_options(options: &[u8]) -> Result<(), DecodeError> {
+    let mut offset = 0;
+    while offset < options.len() {
+        match options[offset] {
+            0 => break,       // End of option list; remaining bytes are padding.
+            1 => offset += 1, // NOP has no length field.
+            kind => {
+                if options.len() - offset < 2 {
+                    return Err(DecodeError::Malformed("short IPv4 option"));
+                }
+                let length = usize::from(options[offset + 1]);
+                if length < 2 || length > options.len() - offset {
+                    return Err(DecodeError::Malformed("IPv4 option length"));
+                }
+                if matches!(kind, 131 | 137) {
+                    return Err(DecodeError::Unsupported("IPv4 source-route checksum"));
+                }
+                offset += length;
+            }
+        }
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
