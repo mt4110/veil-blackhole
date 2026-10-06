@@ -1,5 +1,7 @@
 # オフラインの人工パケット
 
+`query-v6-options.hex`はpadding-onlyのHop-by-HopとDestination Optionsを追加した人工IPv6入力。offsetと対応範囲は[拡張ヘッダー検証記録](../../docs/IPV6_EXTENSIONS.md)を参照。
+
 全fixtureは人工的な固定バイト列です。実通信、Wireshark、BPFから採取したデータではありません。hexは空白と改行だけを許し、コメントやpcap headerを含みません。
 
 ## query-a.hex
@@ -41,3 +43,7 @@
 人工的な92-byteのEthernet / IPv6 / UDP / DNS query。EtherType 0x86dd、IPv6 version=6、payload length=38、Next Header=17、Hop Limit=64、source=2001:db8::10、destination=2001:db8::53。UDPは53000→53、length=38、checksum=0xa0bd。DNSの30-byte payloadはdns-query-a.hexと同じで、ID=0x1234、tracker.test. A IN。
 
 IPv6 headerはoffset 14から40 byte、sourceはoffset 22から16 byte、destinationはoffset 38から16 byte、UDPはoffset 54、DNSはoffset 62。IPv6 pseudoheaderを含むchecksumを独立検算し、tcpdumpのオフライン解析でも確認した。実ネットワークから取得したframeではない。
+
+## bad-udp-checksum.hex
+
+query-a.hexのDNS ID（offset 42〜43）だけを7に変更し、UDP checksumを更新しない人工入力。構造のみの再生は成功するが、--verify-checksumsではUDP checksum error、malformed=1、終了コード2となる。送信用ではない。

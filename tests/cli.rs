@@ -95,3 +95,66 @@ fn ipv6_replay_is_private_by_default_and_formats_opt_in_endpoints() {
             .contains("[2001:db8::10]:53000 -> [2001:db8::53]:53")
     );
 }
+
+#[test]
+fn checksum_verification_is_opt_in_and_restricted_to_frames() {
+    for (file, format, count) in [
+        ("query-a.hex", "ethernet", 1),
+        ("query-v6.hex", "ethernet", 1),
+        ("query-v6-options.hex", "ethernet", 1),
+        ("bpf-two-records.hex", "bpf-darwin", 2),
+    ] {
+        let path = format!("tests/fixtures/{file}");
+        let output = run(&[
+            "replay",
+            "--fixture",
+            &path,
+            "--format",
+            format,
+            "--verify-checksums",
+        ]);
+        assert!(output.status.success());
+        let text = String::from_utf8_lossy(&output.stdout);
+        assert!(text.contains("checksum=verification-enabled"));
+        assert_eq!(text.matches("udp=valid").count(), count);
+        assert!(!text.contains("tracker.test"));
+    }
+    for args in [
+        vec![
+            "replay",
+            "--fixture",
+            "tests/fixtures/dns-query-a.hex",
+            "--format",
+            "dns",
+            "--verify-checksums",
+        ],
+        vec![
+            "capture",
+            "--interface",
+            "en0",
+            "--duration",
+            "10",
+            "--verify-checksums",
+        ],
+        vec![
+            "replay",
+            "--fixture",
+            "tests/fixtures/query-a.hex",
+            "--verify-checksums",
+            "--verify-checksums",
+        ],
+    ] {
+        assert_eq!(run(&args).status.code(), Some(2));
+    }
+}
+
+#[test]
+fn invalid_checksum_exits_two_without_counting_query() {
+    let args = ["replay", "--fixture", "tests/fixtures/bad-udp-checksum.hex"];
+    assert!(run(&args).status.success());
+    let output = run(&[args[0], args[1], args[2], "--verify-checksums"]);
+    assert_eq!(output.status.code(), Some(2));
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert!(text.contains("UDP checksum"));
+    assert!(text.contains("queries=0 unsupported=0 malformed=1"));
+}

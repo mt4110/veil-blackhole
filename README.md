@@ -12,6 +12,17 @@ Liveバックエンドは実装済みです。IPv4版では利用者の実機出
 
 ## ビルドとオフライン再生
 
+miseからRustの固定版と開発コマンドを利用できます。`rust-toolchain.toml`を設定元とし、mise側に版を重複定義しません。
+
+```sh
+mise trust
+mise install
+mise run check
+mise run learn:ipv4
+```
+
+`mise tasks`でコマンド一覧を表示します。[コマンドで遊ぶ学習ガイド](docs/LEARNING.md)には、IPv4/IPv6の比較、異常入力、人工パケットの変更、短時間の実機観察をまとめています。Python 3、make、macOS SDK/C compilerはホスト環境を使います。`sudo mise`や`sudo cargo`は使わず、Live取得に必要な権限だけを完成済みバイナリに渡します。
+
 検証した環境はApple silicon、macOS 27.0.1、Rust 1.98.1です。Rustの数値versionを`rust-toolchain.toml`、依存を`Cargo.lock`で固定しています。一般ユーザーで実行してください。
 
 ```sh
@@ -27,17 +38,34 @@ cargo run --locked -- replay --fixture tests/fixtures/dns-query-a.hex --format d
 cargo run --locked -- replay --fixture tests/fixtures/bpf-two-records.hex --format bpf-darwin
 ```
 
-入力は最大1 MiBのASCII hexの通常ファイルです。pcap/pcapngの直接読み込みは提供しません。Ethernetと人工BPF形式はDLT_EN10MB、タグなしIPv4/IPv6（IPv6拡張ヘッダーなし）、非断片化UDP、宛先53番のqueryだけが対象です。DNSだけの形式ではL2/L3/L4の条件を検証しません。
+入力は最大1 MiBのASCII hexの通常ファイルです。pcap/pcapngの直接読み込みは提供しません。Ethernetと人工BPF形式はDLT_EN10MB、タグなしIPv4/IPv6（オフラインではpadding-onlyのHop-by-Hop／Destination Optionsに対応）、非断片化UDP、宛先53番のqueryだけが対象です。DNSだけの形式ではL2/L3/L4の条件を検証しません。
 
 出力の`checksum=unverified direction=unverified`は、checksum、送信方向、自端末由来をこの再生で確認していないことを表します。ファイルの内容が実通信を観測した証拠になるわけではありません。明示表示した名前やIPは標準出力に出るため、リダイレクト先やterminal記録にも残り得ます。
 
 再生の終了コードは、0=完了（対象外packetを含む）、2=引数・読込み・解析不正または切詰めrecordです。`unsupported`、`malformed`、`truncated`を個別に集計します。
 
+## オフラインのチェックサム検証
+
+```sh
+mise run learn:checksum
+cargo run --locked -- replay --fixture tests/fixtures/query-a.hex --verify-checksums
+```
+
+`--verify-checksums`はEthernetとbpf-darwinの再生だけで使用できます。IPv4 header（optionsを含む）とUDPの疑似header・payloadを検証し、不正ならmalformedとして終了コード2を返します。IPv4のUDP値0は`udp=omitted`、IPv6のUDP値0は不正です。IPv6にはIP header checksumがなく`ipv4_header=not-applicable`と表示します。成功した各queryに検証結果を表示しますが、送信方向・出所・内容の真正性は証明しません。
+
+IPv4のLSRR／SSRR（ソースルート）optionは、UDP疑似headerの最終宛先を扱わないため、検証時にunsupportedとして拒否します。通常のoptionはEOL・NOP・TLV長の境界を確認します。
+
+DNS単体では必要なIP/UDP headerがないため、このオプションを拒否します。既定の再生とLiveは引き続きchecksum未検証です。取得時点で送信オフロードによりchecksumが未完成の場合があるので、実通信由来のファイルの検証失敗を、そのまま回線上の不正と判断しません。
+
+根拠は[UDPの定義](https://www.rfc-editor.org/rfc/rfc768.html)、[IPv6の疑似headerとUDP checksum](https://www.rfc-editor.org/rfc/rfc8200.html#section-8.1)です。対応外のトンネル等の例外は実装対象に含めません。
+
+[オフラインIPv6拡張ヘッダーの範囲と検証](docs/IPV6_EXTENSIONS.md)を参照。`mise run learn:ipv6-options`で人工入力を再生できます。Liveの取得範囲は直接UDPのままです。
+
 ## Liveバックエンドの現在地
 
 `capture --interface NAME --duration SECONDS`を実装しました。interfaceは必須、時間は1〜3600秒です。既定は件数のみで、名前・IPは`--show-names`と`--show-endpoints`で明示表示します。取得対象は、指定interfaceの自端末IPv4/IPv6送信元、タグなしEthernet、非断片化UDP、宛先53番のDNS queryです。IPv6拡張ヘッダー・断片化・jumbogram、TCP、VPN、DoH/DoT、mDNS、キャッシュ済みの名前解決は対象外です。
 
-実通信を取得するため、オフラインの`replay`とは実行範囲が異なります。今回の実装作業ではLiveコマンドを実行していません。実機試験を行う場合は、対象interface、時間、表示・保存の扱いを先に決めてください。ビルドとテストは一般ユーザーで行い、管理者権限が必要な場合も完成済みバイナリだけを起動する手順です。`sudo cargo run`は使用しません。
+実通信を取得するため、オフラインの`replay`とは実行範囲が異なります。Liveの実機結果は利用者提供の出力に基づき、検証記録に条件と限界を記載しています。実機試験を行う場合は、対象interface、時間、表示・保存の扱いを先に決めてください。ビルドとテストは一般ユーザーで行い、管理者権限が必要な場合も完成済みバイナリだけを起動する手順です。`sudo cargo run`は使用しません。
 
 実装上の境界は次のとおりです。
 
@@ -63,6 +91,14 @@ python3 scripts/check-native-filter.py
 ```
 
 [fixtureの出所と期待値](tests/fixtures/README.md)、[オフライン検証記録](docs/VALIDATION.md)、[Live実装の検証記録](docs/LIVE_VALIDATION.md)を参照してください。macOSのビルドにはXcode Command Line Tools等のSDK/C compilerが必要です。独立filter試験はmacOS付属libpcapのオフライン評価器を使い、アプリ自体はlibpcapへリンクしません。オフライン試験の成功は、BPF・権限降格・実通信の動作確認とは別です。
+
+## CIと最終確認
+
+```sh
+mise run check-ci
+```
+
+macOSで回帰試験・整形・Clippy・releaseビルド・オフライン学習コマンド・人工filter検証を実行します。Live取得、resolver経路確認、DNS送信、sudoは含みません。GitHub Actionsも同じタスクをmacos-15で実行する定義です。Rustはrust-toolchain.toml、miseは検証済み2026.1.4、Actionsはcommit SHAで固定しています。SDK/Pythonはrunner付属で、手元のOSとの同一性は保証しません。追加したworkflowのGitHub上での成功はpush後に別途確認が必要です。
 
 ## IPv6対応後の実機試験
 

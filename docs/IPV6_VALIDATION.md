@@ -60,4 +60,25 @@ result=observed（実DNSのread・デコードを確認。queryの個別同定�
 
 queries=13には自然発生した他のqueryも含まれ得る。試験queryは1回送信しdig_exit=0であったが、名前を表示・保存・照合していないため、その1件を個別に同定していない。全13件がIPv6であるとも判定しない。packet checksumは引き続きunverifiedであり、今回のBPF dropが0だったことを欠落ゼロの一般保証にしない。
 
-この条件でのPhase 1の基本経路は成立した。旧IPv4版のCtrl-C停止試験は成功済みだが、修正版のCtrl-C、interface切断/変更、強制停止、長時間・高負荷、他OS/別interface、IPv6 extension/fragmentの実機試験は未実施。後続の応答合成、遮断、Network Extension、公開・releaseは今回の承認範囲に含めない。
+この条件でのPhase 1の基本経路は成立した。この時点では修正版のCtrl-Cとinterface切断/変更は未実施だった。後続の試験結果を以下に追記する。強制停止、長時間・高負荷、他OS/別interface、IPv6 extension/fragmentの実機試験は未実施。後続の応答合成、遮断、Network Extension、公開・releaseは今回の承認範囲に含めない。
+
+## mise経由の取得と修正版の停止試験
+
+2026年10月6日 JST。以下は利用者提供のターミナル出力であり、独立採取した結果ではない。名前・endpoint表示は無効、checksumはunverifiedである。
+
+| 試験 | 共有された結果 |
+| --- | --- |
+| `mise run live-smoke` | dig_exit=0、queries=9、kernel_received=556、interrupted=false、capture_exit=0、result=observed |
+| en0で30秒の時間満了 | queries=15、kernel_received=1943、interrupted=false、exit=0 |
+| en0で取得開始後にCtrl-C | queries=1、kernel_received=35、interrupted=true、exit=130 |
+| en0の60秒取得中にLAN切断を試験 | mode=liveの後に「interfaceには1〜16個のIPアドレスが必要です」、exit=3 |
+
+集計が共有された最初の3試験はunsupported、malformed、truncated、display_dropped、kernel_droppedがすべて0だった。LAN切断試験では集計は表示されていない。IPの実数、flags、切断から終了までの時間、FD解放の独立観測は記録していない。
+
+時間満了とCtrl-Cの終了理由・終了コードは期待値と一致した。LAN切断試験では取得開始後のinterface再確認が失敗し、エラー終了した。アドレス数を表示していないので、0個になったとは断定しない。切断時の挙動を、Wi-Fiへの自動追従やあらゆる回線変化の検知保証として扱わない。
+
+## 取得中のエラー表示の改善
+
+interface再確認が失敗した場合、原因の前に「取得中に対象インターフェースの情報を再確認できないため停止しました」を加えた。起動時の入力条件エラーと区別し、元の原因も保持する。終了コード3、取得条件、約500 msの確認間隔は変えない。
+
+人工sourceで再確認エラーを返すケースを既存の資源解放試験に追加し、文言とsource解放を確認する。この表示変更後の実機LAN切断試験は未実施で、上記の実機結果は表示変更前の版の証拠である。

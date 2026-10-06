@@ -125,7 +125,10 @@ mod live {
                 break;
             }
             if Instant::now() >= next_interface_check {
-                if !device.matches_interface()? {
+                let matches = device.matches_interface().map_err(|reason| {
+                    format!("取得中に対象インターフェースの情報を再確認できないため停止しました: {reason}")
+                })?;
+                if !matches {
                     return Err("interfaceのindex・IP・flagsが変わったため停止しました".into());
                 }
                 next_interface_check = Instant::now() + Duration::from_millis(500);
@@ -251,6 +254,7 @@ mod live {
             stop: Arc<AtomicBool>,
             closed: Arc<AtomicBool>,
             changed: bool,
+            interface_error: bool,
             read_error: bool,
         }
         impl CaptureSource for SyntheticSource {
@@ -258,6 +262,9 @@ mod live {
                 1024
             }
             fn matches_interface(&self) -> Result<bool, String> {
+                if self.interface_error {
+                    return Err("interfaceには1〜16個のIPアドレスが必要です".into());
+                }
                 Ok(!self.changed)
             }
             fn read(&mut self, buffer: &mut [u8], timeout: i32) -> Result<Option<usize>, String> {
@@ -303,6 +310,7 @@ mod live {
                 stop: Arc::new(AtomicBool::new(false)),
                 closed: Arc::new(AtomicBool::new(false)),
                 changed: false,
+                interface_error: false,
                 read_error: false,
             }
         }
@@ -363,17 +371,24 @@ mod live {
 
         #[test]
         fn loop_fails_closed_and_releases_source_on_structural_interface_or_io_error() {
-            for kind in 0..4 {
+            for kind in 0..5 {
                 let mut source = synthetic_source(if kind == 0 { vec![0] } else { fixture() });
                 source.changed = kind == 1;
                 source.read_error = kind == 2;
+                source.interface_error = kind == 4;
                 if kind == 3 {
                     source.data.as_mut().unwrap()[22 + 29] = 11;
                 }
                 let stop = source.stop.clone();
                 let closed = source.closed.clone();
                 let (sender, _receiver) = mpsc::sync_channel(16);
-                assert!(capture_loop(source, snapshot(), options(), stop, sender).is_err());
+                let error = capture_loop(source, snapshot(), options(), stop, sender).unwrap_err();
+                if kind == 4 {
+                    assert_eq!(
+                        error,
+                        "取得中に対象インターフェースの情報を再確認できないため停止しました: interfaceには1〜16個のIPアドレスが必要です"
+                    );
+                }
                 assert!(closed.load(Ordering::Relaxed));
             }
         }
