@@ -9,7 +9,7 @@ description = "Read-only macOS DNS analyzer for the veil-blackhole Phase 1 study
 [dependencies]
 hickory-proto = { version = "=0.26.3", default-features = false, features = ["std"] }
 
-[target.'cfg(target_os = "macos")'.dependencies]
+[target.'cfg(unix)'.dependencies]
 libc = "=0.2.190"
 
 [build-dependencies]
