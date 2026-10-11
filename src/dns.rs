@@ -48,6 +48,10 @@ pub fn decode_query(payload: &[u8]) -> Result<DnsQuery, DecodeError> {
     if flags & 0x7800 != 0 {
         return Err(DecodeError::Unsupported("DNS opcode"));
     }
+    // Only Z remains reserved; AD/CD are assigned DNSSEC flags.
+    if flags & 0x0040 != 0 {
+        return Err(DecodeError::Malformed("DNS reserved Z flag"));
+    }
     if u16::from_be_bytes([payload[4], payload[5]]) != 1 {
         return Err(DecodeError::Malformed("DNS question count must be one"));
     }
