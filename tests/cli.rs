@@ -158,3 +158,25 @@ fn invalid_checksum_exits_two_without_counting_query() {
     assert!(text.contains("UDP checksum"));
     assert!(text.contains("queries=0 unsupported=0 malformed=1"));
 }
+
+#[test]
+fn short_dns_header_is_counted_as_malformed_once() {
+    // Eleven bytes: one byte short of the fixed DNS header, not a BPF capture truncation.
+    let output = run(&[
+        "replay",
+        "--fixture",
+        "tests/fixtures/dns-short-header.hex",
+        "--format",
+        "dns",
+    ]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stderr.is_empty());
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.contains("入力不正: DNS message length"));
+    assert_eq!(
+        text.lines()
+            .filter(|line| line.starts_with("queries="))
+            .collect::<Vec<_>>(),
+        ["queries=0 unsupported=0 malformed=1 truncated=0"]
+    );
+}

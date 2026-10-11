@@ -31,6 +31,7 @@
 | --- | --- |
 | query-options.hex | IHL=6、4 bytesのNOP options、IPv4 total length=62、checksum=0x3906。UDP/DNSは同じで、76 bytes |
 | dns-query-a.hex | query-aのDNS payloadだけ、30 bytes |
+| dns-short-header.hex | DNSヘッダーを11 bytesに短縮した人工入力。12 bytesのヘッダーに1 byte足りず、終了2・queries=0 unsupported=0 malformed=1 truncated=0を要求する。capture truncationとは別 |
 | bpf-two-records.hex | classic Darwinの人工recordを2件並べた190 bytes |
 | bad-udp-length.hex | query-aのUDP lengthだけを7へ変更した異常入力。期待結果はUDP length error |
 
