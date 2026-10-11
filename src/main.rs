@@ -226,14 +226,18 @@ fn record_error(out: &mut impl Write, error: DecodeError, counts: &mut Counts) -
     writeln!(out, "{error}")
 }
 
-fn replay(options: &Replay, out: &mut impl Write) -> Result<i32, &'static str> {
-    // Do not deliberately open directories, devices, symlinks, or FIFO inputs.
-    let metadata =
-        std::fs::symlink_metadata(&options.path).map_err(|_| "fixtureの情報を取得できません")?;
-    if !metadata.is_file() {
-        return Err("fixtureはsymlinkやdeviceではない通常ファイルを指定してください");
+// Called after the path preflight; the path can change before this open.
+fn open_prechecked_fixture(path: &std::path::Path) -> Result<File, &'static str> {
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        // NOFOLLOW rejects a final symlink swapped in after preflight; NONBLOCK
+        // prevents a replacement FIFO from waiting for a writer before fstat.
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
     }
-    let file = File::open(&options.path).map_err(|_| "fixtureを開けません")?;
+    let file = options.open(path).map_err(|_| "fixtureを開けません")?;
     if !file
         .metadata()
         .map_err(|_| "fixtureの情報を確認できません")?
@@ -241,6 +245,17 @@ fn replay(options: &Replay, out: &mut impl Write) -> Result<i32, &'static str> {
     {
         return Err("開いたfixtureは通常ファイルではありません");
     }
+    Ok(file)
+}
+
+fn replay(options: &Replay, out: &mut impl Write) -> Result<i32, &'static str> {
+    // Do not deliberately open directories, devices, symlinks, or FIFO inputs.
+    let metadata =
+        std::fs::symlink_metadata(&options.path).map_err(|_| "fixtureの情報を取得できません")?;
+    if !metadata.is_file() {
+        return Err("fixtureはsymlinkやdeviceではない通常ファイルを指定してください");
+    }
+    let file = open_prechecked_fixture(&options.path)?;
     let mut input = Vec::new();
     file.take(MAX_HEX_FILE_BYTES as u64 + 1)
         .read_to_end(&mut input)
@@ -354,4 +369,65 @@ fn main() {
         }
     };
     std::process::exit(code);
+}
+
+#[cfg(all(test, unix))]
+mod fixture_open_tests {
+    use super::open_prechecked_fixture;
+    use std::fs;
+    use std::os::unix::fs::symlink;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    fn directory() -> std::path::PathBuf {
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+        let dir = std::env::temp_dir().join(format!(
+            "blackhole-open-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn fifo_replacement_after_preflight_is_rejected_without_a_writer() {
+        let dir = directory();
+        let path = dir.join("fixture");
+        fs::write(&path, b"12 34").unwrap();
+        assert!(fs::symlink_metadata(&path).unwrap().is_file());
+        fs::rename(&path, dir.join("original")).unwrap();
+        assert!(
+            std::process::Command::new("mkfifo")
+                .arg(&path)
+                .status()
+                .unwrap()
+                .success()
+        );
+        assert!(open_prechecked_fixture(&path).is_err());
+    }
+
+    #[test]
+    fn regular_fixture_remains_readable() {
+        use std::io::Read;
+        let dir = directory();
+        let path = dir.join("fixture");
+        fs::write(&path, b"12 34").unwrap();
+        let mut input = String::new();
+        open_prechecked_fixture(&path)
+            .unwrap()
+            .read_to_string(&mut input)
+            .unwrap();
+        assert_eq!(input, "12 34");
+    }
+
+    #[test]
+    fn symlink_replacement_after_preflight_is_rejected() {
+        let dir = directory();
+        let path = dir.join("fixture");
+        fs::write(&path, b"12 34").unwrap();
+        assert!(fs::symlink_metadata(&path).unwrap().is_file());
+        fs::rename(&path, dir.join("original")).unwrap();
+        symlink(dir.join("original"), &path).unwrap();
+        assert!(open_prechecked_fixture(&path).is_err());
+    }
 }

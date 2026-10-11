@@ -40,6 +40,8 @@ cargo run --locked -- replay --fixture tests/fixtures/bpf-two-records.hex --form
 
 入力は最大1 MiBのASCII hexの通常ファイルです。pcap/pcapngの直接読み込みは提供しません。Ethernetと人工BPF形式はDLT_EN10MB、タグなしIPv4/IPv6（オフラインではpadding-onlyのHop-by-Hop／Destination Optionsに対応）、非断片化UDP、宛先53番のqueryだけが対象です。DNSだけの形式ではL2/L3/L4の条件を検証しません。
 
+macOS／Linuxではopen時に最終パス要素のsymlinkを拒否し、通常ファイルの事前確認後にFIFOへ差し替えられてもwriter待ちを避け、開いたFDの種類を再確認します。親ディレクトリのsymlink、通常ファイル同士の差し替え・内容変更、deviceへの差し替えによるopen自体の副作用まで防ぐsandboxではありません。
+
 出力の`checksum=unverified direction=unverified`は、checksum、送信方向、自端末由来をこの再生で確認していないことを表します。ファイルの内容が実通信を観測した証拠になるわけではありません。明示表示した名前やIPは標準出力に出るため、リダイレクト先やterminal記録にも残り得ます。
 
 再生の終了コードは、0=完了（対象外packetを含む）、2=引数・読込み・解析不正または切詰めrecordです。`unsupported`、`malformed`、`truncated`を個別に集計します。
