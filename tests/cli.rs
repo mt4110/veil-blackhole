@@ -43,6 +43,22 @@ fn names_and_endpoints_are_hidden_unless_requested() {
 }
 
 #[test]
+fn reserved_dns_z_flag_is_counted_as_malformed_without_query() {
+    let output = run(&[
+        "replay",
+        "--fixture",
+        "tests/fixtures/dns-reserved-z.hex",
+        "--format",
+        "dns",
+    ]);
+    assert_eq!(output.status.code(), Some(2));
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert!(text.contains("DNS reserved Z flag"));
+    assert!(text.contains("queries=0 unsupported=0 malformed=1 truncated=0"));
+    assert!(!text.contains("tracker.test"));
+}
+
+#[test]
 fn replays_dns_and_multiple_bpf_records() {
     for (file, format, count) in [
         ("tests/fixtures/dns-query-a.hex", "dns", 1),

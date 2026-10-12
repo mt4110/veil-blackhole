@@ -168,6 +168,20 @@ fn dns_kind_class_counts_and_trailing_data_are_validated() {
 }
 
 #[test]
+fn dns_reserved_z_is_malformed_while_ad_cd_remain_supported() {
+    for flags in [0x0100, 0x0110, 0x0120, 0x0130] {
+        let mut dns = fixture("dns");
+        put16(&mut dns, 2, flags);
+        assert_eq!(decode_query(&dns).unwrap().flags, flags);
+        put16(&mut dns, 2, flags | 0x0040);
+        assert_eq!(
+            decode_query(&dns),
+            Err(DecodeError::Malformed("DNS reserved Z flag"))
+        );
+    }
+}
+
+#[test]
 fn compressed_names_are_validated_in_all_sections() {
     let mut dns = fixture("dns");
     put16(&mut dns, 10, 1);
