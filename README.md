@@ -113,3 +113,5 @@ python3 scripts/live-smoke.py
 ```
 
 認証が切れている場合は、先に同じターミナルで`sudo -v`を実行する。`python3 scripts/live-smoke.py --check`は経路確認だけで、取得とquery送信を行わない。resolver設定の変更や公開DNS serverへの切替は行わない。
+
+起動行は改行までを期限付きで読み、起動確認後に同時に届いた集計も保持する。未確認・EOF・起動出力上限超過では問い合わせを送らない。[部分出力と起動期限の検証](docs/LIVE_STARTUP_VALIDATION.md)は、sudo・BPF・ネットワークを使わないダミー子プロセスでの回帰確認である。

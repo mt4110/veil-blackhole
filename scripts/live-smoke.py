@@ -17,6 +17,8 @@ import time
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 INTERFACE = "en0"
 BINARY = ROOT / "target" / "release" / "veil-blackhole"
+STARTUP_TIMEOUT = 20
+MAX_STARTUP_BYTES = 64 * 1024
 
 
 def configured_resolver():
@@ -44,6 +46,44 @@ def stop_capture(process):
         process.communicate(timeout=5)
 
 
+def wait_for_startup(process, timeout):
+    """Read complete startup lines by deadline, retaining bytes after readiness."""
+    fd = process.stdout.fileno()
+    blocking = os.get_blocking(fd)
+    os.set_blocking(fd, False)
+    pending = bytearray()
+    received = 0
+    deadline = time.monotonic() + timeout
+    try:
+        with selectors.DefaultSelector() as selector:
+            selector.register(fd, selectors.EVENT_READ)
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                if not selector.select(timeout=min(0.2, remaining)):
+                    continue
+                try:
+                    chunk = os.read(fd, 4096)
+                except BlockingIOError:
+                    continue
+                if not chunk:
+                    break
+                received += len(chunk)
+                if received > MAX_STARTUP_BYTES:
+                    raise RuntimeError("取得開始前の出力が上限を超えました。問い合わせは送信しません")
+                pending.extend(chunk)
+                while b"\n" in pending:
+                    line, _, rest = pending.partition(b"\n")
+                    pending = bytearray(rest)
+                    print(line.decode("utf-8", errors="replace").rstrip(), flush=True)
+                    if line.startswith(b"mode=live "):
+                        return bytes(pending)
+    finally:
+        os.set_blocking(fd, blocking)
+    raise RuntimeError("取得開始を期限内に確認できません。問い合わせは送信しません")
+
+
 def main():
     if sys.platform != "darwin" or os.geteuid() == 0:
         raise RuntimeError("macOSの一般ユーザーで起動してください。script自体にsudoは付けません")
@@ -60,30 +100,18 @@ def main():
     # except stdio are closed in the child; no credential is read by this script.
     process = subprocess.Popen(["sudo", "-n", str(BINARY), "capture", "--interface", INTERFACE,
                                 "--duration", "10"], stdout=subprocess.PIPE,
-                               stderr=subprocess.STDOUT, text=True, bufsize=1, close_fds=True)
+                               stderr=subprocess.STDOUT, bufsize=0, close_fds=True)
     try:
-        with selectors.DefaultSelector() as selector:
-            selector.register(process.stdout, selectors.EVENT_READ)
-            deadline = time.monotonic() + 20
-            started = False
-            while time.monotonic() < deadline:
-                if not selector.select(timeout=0.2):
-                    continue
-                line = process.stdout.readline()
-                if not line:
-                    break
-                print(line.rstrip(), flush=True)
-                if line.startswith("mode=live "):
-                    started = True
-                    break
-        if not started or process.poll() is not None:
+        pending = wait_for_startup(process, STARTUP_TIMEOUT)
+        if process.poll() is not None:
             raise RuntimeError("取得開始を確認できません。問い合わせは送信しません")
         # Existing server only. One attempt; no TCP retry, no banner or DNS data.
         query = subprocess.run(["/usr/bin/dig", "-6", "@" + server, "example.com", "A",
                                 "+notcp", "+ignore", "+tries=1", "+time=2", "+noall", "+nocmd"],
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
         print(f"test_query_attempts=1 dig_exit={query.returncode}", flush=True)
-        output, _ = process.communicate(timeout=20)
+        rest, _ = process.communicate(timeout=20)
+        output = (pending + rest).decode("utf-8", errors="replace")
         print(output, end="", flush=True)
         print(f"capture_exit={process.returncode}", flush=True)
         counts = re.search(r"^queries=(\d+) .*malformed=(\d+) truncated=(\d+)", output, re.M)
